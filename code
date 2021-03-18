@@ -1,0 +1,150 @@
+---
+title: "Untitled"
+author: "Sandy Zhao"
+date: "2021/3/9"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(rjson)
+library(jsonlite)
+library(stringr)
+library(quanteda)
+library(SentimentAnalysis)
+library(vader)
+library(qdap)
+library(tm)
+
+```
+
+```{r import json data}
+setwd("C:/Users/赵晨笛/Box/Assignment 2")
+alltweets<-data.frame(all_tweets[c("created_at","text")])
+
+write.csv(alltweets,file="C:/Users/赵晨笛/Desktop/tweets.csv")
+
+alltweets<-read.csv(file="C:/Users/赵晨笛/Desktop/tweets.csv")
+tweets_p<-tweets_p[,-1]
+
+alltweets$time<-as.Date(alltweets$created_at,format ='%d-%m-%y')
+```
+
+```{r}
+
+
+```
+
+```{r}
+
+newtweets <- subset(alltweets, !grepl(irrelevantWords, alltweets$text))
+ irrelevantWords = c('Democrats','Republicans',"Biden","Trump")
+newtweets <- subset(newtweets, !duplicated(newtweets$text))
+
+newtweets$text = gsub("&amp", "", newtweets$text )
+newtweets$text = gsub("(RT|via)((?:\\b\\W*@\\w+)+)", "", newtweets$text)
+newtweets$text = gsub("@\\w+", "", newtweets$text)
+newtweets$text = gsub("[[:punct:]]", "", newtweets$text)
+newtweets$text = gsub("[[:digit:]]", "", newtweets$text)
+newtweets$text = gsub("http\\w+", "", newtweets$text)
+newtweets$text = gsub("[ \t]{2,}", "", newtweets$text)
+newtweets$text = gsub("^\\s+|\\s+$", "", newtweets$text) 
+newtweets$text = removeWords(newtweets$text, stopwords("english"))
+newtweets$text = stripWhitespace(newtweets$text)
+
+write.csv(newtweets,file="C:/Users/赵晨笛/Desktop/newtweets.csv")
+```
+
+```{r}
+sentiments = analyzeSentiment(iconv(as.character(newtweets$text), to='UTF-8'))
+sentiments_text=as.character(newtweets$text)
+sentiments=iconv(sentiments_text, to='UTF-8')
+sentiments = analyzeSentiment(sentiments)
+```
+
+```{r}
+corpus <- Corpus(VectorSource(sentence)) # Convert input data to corpus
+corpus <- tm_map(corpus, removeWords, stopwords('english')) # Remove stop word using tm package
+dataframe<-data.frame(text=unlist(sapply(corpus, `[`, "content")), 
+                  stringsAsFactors=F) # Convert data back to data frame from corpus
+```
+```{r}
+alltweets_new <- corpus(newtweets, 
+                  text_field="text")
+token_alltweets <- tokens(alltweets_new, what = c("word"))
+
+alltweets_cleaned <- token_alltweets%>%
+                   tokens_tolower() %>%
+                   tokens(token_alltweets, 
+                          remove_numbers = TRUE, 
+                        remove_punct = TRUE, 
+                        remove_symbols = TRUE, 
+                        remove_separators = TRUE,
+                        remove_url = TRUE) %>%
+                   tokens_remove(stopwords("en")) %>%
+                   tokens_wordstem(language = "en")
+
+T1_DFM <- dfm(alltweets_cleaned) 
+alltweets_cleaned <-T1_DFM%>% 
+  convert(to = "data.frame") %>% 
+  cbind(docvars(T1_DFM))
+alltweets_cleaned <-cbind(convert(T1_DFM, to = "data.frame"), docvars(T1_DFM))
+```
+
+```{r dictionaries}
+
+GI_dict = dictionary(DictionaryGI)
+
+HL_dict = dictionary(list(positive=positive.words, negative=negation.words))
+
+LS_dict = dictionary(data_dictionary_LSD2015)
+
+vader_pos = vader$word[vader$sentiment > 0]
+vader_neg = vader$word[vader$sentiment < 0]
+Vader_dict = dictionary(list(positive=vader_pos, negative=vader_neg))
+gc()
+
+result1 = T1_DFM %>% dfm_lookup(GI_dict) %>% convert(to = "data.frame") %>% as_tibble
+result1 = result1 %>% mutate(length=ntoken(T1_DFM))
+result1 = result1 %>% mutate(sentiment1=(positive - negative) / (positive + negative))
+result1 = result1 %>% mutate(sentiment2=(positive - negative) / length)
+result1 = result1 %>% mutate(subjectivity=(positive + negative) / length)
+summary(result1$sentiment2)
+
+
+result2 = T1_DFM %>% dfm_lookup(HL_dict) %>% convert(to = "data.frame") %>% as_tibble
+result2 = result2 %>% mutate(length=ntoken(T1_DFM))
+result2 = result2 %>% mutate(sentiment1=(positive - negative) / (positive + negative))
+result2 = result2 %>% mutate(sentiment2=(positive - negative) / length)
+result2 = result2 %>% mutate(subjectivity=(positive + negative) / length)
+summary(result2$sentiment2)
+
+result3 = T1_DFM %>% dfm_lookup(data_dictionary_LSD2015) %>% convert(to = "data.frame") %>% as_tibble
+
+
+result3$LCpos = sapply (result3, function (x) sum (x=='POSITIVE')-sum (x=='NEG_POSITIVE ')+ sum(x=='NEG_NEGATIVE'))%>%as_tibble()
+
+
+result3 = result3 %>% mutate(length=ntoken(T1_DFM))
+result3 = result3 %>% mutate(sentiment1=(positive - negative + neg_positive))
+result3 = result3 %>% mutate(sentiment2=(negative - positive + neg_positive))
+result3 = result3 %>% mutate(subjectivity=(sentiment1-sentiment2)/length)
+
+summary(result3)
+```
+
+
+```{r}
+result1$time<-tweets1$created_at
+result1$location<-tweets1$location
+
+result1%>%
+  group_by(time)%>%
+  summarise(sentiment1,length)%>%
+  ggplot(aes(length,sentiment1,fill=time))+
+  geom_bar(alpha = 0.5, stat = "identity", show.legend = FALSE) +
+          facet_wrap(~ time, ncol = 2, scales = "free_x")
+
+
+
+```
